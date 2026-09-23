@@ -19,6 +19,43 @@ USER_AGENT = None
 XVFB_DISPLAY = None
 PATCHED_DRIVER_PATH = None
 
+# Without a GPU Chrome renders WebGL with SwiftShader, a renderer real users almost never have.
+# This script reports a common Intel GPU instead, only when the real renderer is SwiftShader.
+WEBGL_SPOOF_SCRIPT = """
+(() => {
+    const UNMASKED_VENDOR = 0x9245;
+    const UNMASKED_RENDERER = 0x9246;
+    const VENDOR = 'Google Inc. (Intel)';
+    const RENDERER = 'ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (KBL GT2), OpenGL 4.6)';
+    const originals = new WeakMap();
+
+    const nativeToString = Function.prototype.toString;
+    const toStringProxy = new Proxy(nativeToString, {
+        apply(target, thisArg, args) {
+            return Reflect.apply(target, originals.get(thisArg) || thisArg, args);
+        }
+    });
+    originals.set(toStringProxy, nativeToString);
+    Function.prototype.toString = toStringProxy;
+
+    for (const context of [self.WebGLRenderingContext, self.WebGL2RenderingContext]) {
+        if (!context) continue;
+        const getParameter = context.prototype.getParameter;
+        const getParameterProxy = new Proxy(getParameter, {
+            apply(target, thisArg, args) {
+                const value = Reflect.apply(target, thisArg, args);
+                if (args[0] !== UNMASKED_VENDOR && args[0] !== UNMASKED_RENDERER) return value;
+                const renderer = Reflect.apply(target, thisArg, [UNMASKED_RENDERER]);
+                if (typeof renderer !== 'string' || !renderer.includes('SwiftShader')) return value;
+                return args[0] === UNMASKED_VENDOR ? VENDOR : RENDERER;
+            }
+        });
+        originals.set(getParameterProxy, getParameter);
+        context.prototype.getParameter = getParameterProxy;
+    }
+})();
+"""
+
 
 def get_config_log_html() -> bool:
     return os.environ.get('LOG_HTML', 'false').lower() == 'true'
@@ -46,6 +83,10 @@ def get_accept_language(locale: str | None) -> str | None:
         return None
     base = tag.split('-')[0]
     return tag if base == tag else f'{tag},{base}'
+
+
+def get_config_spoof_webgl() -> bool:
+    return os.environ.get('SPOOF_WEBGL', 'true').lower() == 'true'
 
 
 def get_config_challenge_grace_seconds() -> int:
@@ -169,8 +210,12 @@ def get_webdriver(proxy: dict = None) -> WebDriver:
         options.add_argument('--disable-gpu-sandbox')
     options.add_argument('--ignore-certificate-errors')
     options.add_argument('--ignore-ssl-errors')
+    # Chrome only honors the last --disable-features switch, so all the features go in one list
     # disable breaking popup
-    options.add_argument("--disable-features=LocalNetworkAccessChecks")
+    disable_features = ['LocalNetworkAccessChecks']
+    if get_config_spoof_webgl():
+        # keep the cross-origin iframes (Turnstile) in the page process so the WebGL script also runs there
+        disable_features += ['IsolateOrigins', 'site-per-process']
 
     language = get_accept_language(os.environ.get('LANG', None))
     if language is not None:
@@ -183,12 +228,13 @@ def get_webdriver(proxy: dict = None) -> WebDriver:
     proxy_extension_dir = None
     if proxy and all(key in proxy for key in ['url', 'username', 'password']):
         proxy_extension_dir = create_proxy_extension(proxy)
-        options.add_argument("--disable-features=DisableLoadExtensionCommandLineSwitch")
+        disable_features.append('DisableLoadExtensionCommandLineSwitch')
         options.add_argument("--load-extension=%s" % os.path.abspath(proxy_extension_dir))
     elif proxy and 'url' in proxy:
         proxy_url = proxy['url']
         logging.debug("Using webdriver proxy: %s", proxy_url)
         options.add_argument('--proxy-server=%s' % proxy_url)
+    options.add_argument('--disable-features=%s' % ','.join(disable_features))
 
     # note: headless mode is detected (headless = True)
     # we launch the browser in head-full mode with the window hidden
@@ -231,6 +277,9 @@ def get_webdriver(proxy: dict = None) -> WebDriver:
         PATCHED_DRIVER_PATH = os.path.join(driver.patcher.data_path, driver.patcher.exe_name)
         if PATCHED_DRIVER_PATH != driver.patcher.executable_path:
             shutil.copy(driver.patcher.executable_path, PATCHED_DRIVER_PATH)
+
+    if get_config_spoof_webgl():
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": WEBGL_SPOOF_SCRIPT})
 
     # clean up proxy extension directory
     if proxy_extension_dir is not None:
