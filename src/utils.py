@@ -36,6 +36,10 @@ def get_config_browser_wait_timeout() -> int:
     return int(os.environ.get('BROWSER_WAIT_TIMEOUT', 1))
 
 
+def get_config_challenge_grace_seconds() -> int:
+    return int(os.environ.get('CHALLENGE_GRACE_SECONDS', 8))
+
+
 def get_flaresolverr_version() -> str:
     global FLARESOLVERR_VERSION
     if FLARESOLVERR_VERSION is not None:

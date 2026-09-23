@@ -293,6 +293,7 @@ This works like `request.get`, with the addition of the postData parameter. Note
 | HEADLESS             | true                   | Only for debugging. To run the web browser in headless mode or visible.                                                                  |
 | DISABLE_MEDIA        | false                  | To disable loading images, CSS, and other media in the web browser to save network bandwidth.                                            |
 | BROWSER_WAIT_TIMEOUT | 1                    | Seconds to wait for the web browser to reach an expected page state on each attempt. Increase it on slow hosts or slow websites.         |
+| CHALLENGE_GRACE_SECONDS | 8                 | Seconds to let the Cloudflare challenge pass on its own before FlareSolverr tries to click the verify checkbox.                          |
 | TEST_URL             | https://www.google.com | FlareSolverr makes a request on start to make sure the web browser is working. You can change that URL if it is blocked in your country. |
 | PORT                 | 8191                   | Listening port. You don't need to change this if you are running on Docker.                                                              |
 | HOST                 | 0.0.0.0                | Listening interface. You don't need to change this if you are running on Docker.                                                         |
