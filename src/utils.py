@@ -36,6 +36,18 @@ def get_config_browser_wait_timeout() -> int:
     return int(os.environ.get('BROWSER_WAIT_TIMEOUT', 1))
 
 
+def get_accept_language(locale: str | None) -> str | None:
+    # convert a POSIX locale (en_US.UTF-8) to a browser language list (en-US,en),
+    # a raw locale in navigator.languages is an easy way to detect the bot
+    if not locale:
+        return None
+    tag = locale.split('.')[0].split('@')[0].replace('_', '-')
+    if tag in ('', 'C', 'POSIX'):
+        return None
+    base = tag.split('-')[0]
+    return tag if base == tag else f'{tag},{base}'
+
+
 def get_config_challenge_grace_seconds() -> int:
     return int(os.environ.get('CHALLENGE_GRACE_SECONDS', 8))
 
@@ -160,7 +172,7 @@ def get_webdriver(proxy: dict = None) -> WebDriver:
     # disable breaking popup
     options.add_argument("--disable-features=LocalNetworkAccessChecks")
 
-    language = os.environ.get('LANG', None)
+    language = get_accept_language(os.environ.get('LANG', None))
     if language is not None:
         options.add_argument('--accept-lang=%s' % language)
 
